@@ -50,3 +50,32 @@ jobs:
 
       - name: Run tests
         run: bin/phpunit
+
+  quality:
+    name: Code quality (Mago)
+    runs-on: biblindex-php-client-runners
+    container:
+      image: php:8.4-cli
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: apt-get update && apt-get install -y --no-install-recommends git unzip
+
+      - name: Install Composer
+        run: |
+          php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+          php composer-setup.php --install-dir=/usr/local/bin --filename=composer
+          rm composer-setup.php
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Check formatting
+        run: bin/mago format --check
+
+      - name: Lint
+        run: bin/mago lint
+
+      - name: Analyze
+        run: bin/mago analyze

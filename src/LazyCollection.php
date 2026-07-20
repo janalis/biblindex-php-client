@@ -214,6 +214,7 @@ final class LazyCollection extends AbstractLazyCollection
                 return false;
             }
 
+            /** @var list<mixed> $wrappedItems */
             $wrappedItems = $this->client->wrapLinkedResources($page, $nextResource, $this->cache);
             foreach ($wrappedItems as $item) {
                 $this->items[] = $item;
@@ -232,6 +233,7 @@ final class LazyCollection extends AbstractLazyCollection
 
         $members = $page['hydra:member'] ?? [];
         if (\is_array($members) && \array_is_list($members)) {
+            /** @var list<mixed> $wrappedMembers */
             $wrappedMembers = $this->client->wrapLinkedResources($members, $nextResource, $this->cache);
             foreach ($wrappedMembers as $member) {
                 $this->items[] = $member;
@@ -246,13 +248,18 @@ final class LazyCollection extends AbstractLazyCollection
 
     private function fetchUntilIndex(int $index): void
     {
-        while ($index >= \count($this->items) && $this->fetchNextPage()) {
+        while ($index >= \count($this->items)) {
+            if (!$this->fetchNextPage()) {
+                return;
+            }
         }
     }
 
     private function fetchAllPages(): void
     {
-        while ($this->fetchNextPage()) {
+        $hasMore = true;
+        while ($hasMore) {
+            $hasMore = $this->fetchNextPage();
         }
     }
 }

@@ -9,7 +9,8 @@
     },
     "require-dev": {
         "phpunit/phpunit": "^13.2",
-        "symfony/dotenv": "^8.1"
+        "symfony/dotenv": "^8.1",
+        "carthage-software/mago": "^1.44"
     },
     "license": "MIT",
     "autoload": {
@@ -29,6 +30,25 @@
         }
     ],
     "config": {
-        "bin-dir": "bin/"
+        "bin-dir": "bin/",
+        "allow-plugins": {
+            "carthage-software/mago": true
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "lint": "mago lint",
+        "format": "mago format",
+        "format:check": "mago format --check",
+        "analyze": "mago analyze",
+        "check": [
+            "@format:check",
+            "@lint",
+            "@analyze",
+            "@test"
+        ],
+        "release:patch": "scripts/release.sh patch",
+        "release:minor": "scripts/release.sh minor",
+        "release:major": "scripts/release.sh major"
     }
 }

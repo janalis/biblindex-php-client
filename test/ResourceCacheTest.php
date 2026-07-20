@@ -15,16 +15,16 @@ final class ResourceCacheTest extends TestCase
     {
         $cache = new ResourceCache();
 
-        self::assertFalse($cache->has('/api/things/1'));
-        self::assertNull($cache->get('/api/things/1'));
+        static::assertFalse($cache->has('/api/things/1'));
+        static::assertNull($cache->get('/api/things/1'));
 
         $cache->set('/api/things/1', ['id' => 1]);
-        self::assertTrue($cache->has('/api/things/1'));
-        self::assertSame(['id' => 1], $cache->get('/api/things/1'));
+        static::assertTrue($cache->has('/api/things/1'));
+        static::assertSame(['id' => 1], $cache->get('/api/things/1'));
 
         $cache->set('/api/things/1', null);
-        self::assertTrue($cache->has('/api/things/1'));
-        self::assertNull($cache->get('/api/things/1'));
+        static::assertTrue($cache->has('/api/things/1'));
+        static::assertNull($cache->get('/api/things/1'));
     }
 
     public function testGetReturnsStoredIdentity(): void
@@ -34,6 +34,6 @@ final class ResourceCacheTest extends TestCase
 
         $cache->set('/api/things/1', $value);
 
-        self::assertSame($value, $cache->get('/api/things/1'));
+        static::assertSame($value, $cache->get('/api/things/1'));
     }
 }

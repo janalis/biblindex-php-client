@@ -34,20 +34,20 @@ final class LazyResourceTest extends TestCase
 
         $resource = new LazyResource($client, self::EXTRACT_RESOURCE, new ResourceCache());
 
-        self::assertSame(self::EXTRACT_RESOURCE, $resource->getResource());
-        self::assertFalse($resource->isLoaded());
+        static::assertSame(self::EXTRACT_RESOURCE, $resource->getResource());
+        static::assertFalse($resource->isLoaded());
 
-        self::assertCount(3, $resource);
-        self::assertTrue($resource->isLoaded());
-        self::assertSame(['@id', 'title', 'place'], \array_keys(\iterator_to_array($resource)));
+        static::assertCount(3, $resource);
+        static::assertTrue($resource->isLoaded());
+        static::assertSame(['@id', 'title', 'place'], \array_keys(\iterator_to_array($resource)));
 
         $resource['title'] = 'Updated';
-        self::assertSame('Updated', $resource['title']);
-        self::assertInstanceOf(LazyResource::class, $resource['place']);
+        static::assertSame('Updated', $resource['title']);
+        static::assertInstanceOf(LazyResource::class, $resource['place']);
         unset($resource['place']);
-        self::assertFalse(isset($resource['place']));
-        self::assertSame(['@id' => '/api/extracts/42', 'title' => 'Updated'], $resource->toArray());
-        self::assertSame(1, $this->requestCount());
+        static::assertFalse(isset($resource['place']));
+        static::assertSame(['@id' => '/api/extracts/42', 'title' => 'Updated'], $resource->toArray());
+        static::assertSame(1, $this->requestCount());
     }
 
     public function testReturnsSeedWhileAlreadyLoading(): void
@@ -58,27 +58,26 @@ final class LazyResourceTest extends TestCase
         $loading = new \ReflectionProperty(LazyResource::class, 'loading');
         $loading->setValue($resource, true);
 
-        self::assertSame(['id' => 42], $resource->toArray());
-        self::assertFalse($resource->isLoaded());
-        self::assertSame(0, $this->requestCount());
+        static::assertSame(['id' => 42], $resource->toArray());
+        static::assertFalse($resource->isLoaded());
+        static::assertSame(0, $this->requestCount());
     }
 
     public function testServesSeedIdentityKeysWithoutFetching(): void
     {
         $client = $this->makeClient();
-        $resource = new LazyResource(
-            $client,
-            self::EXTRACT_RESOURCE,
-            new ResourceCache(),
-            ['@id' => '/api/extracts/42', '@type' => 'Extract', 'id' => 42],
-        );
+        $resource = new LazyResource($client, self::EXTRACT_RESOURCE, new ResourceCache(), [
+            '@id' => '/api/extracts/42',
+            '@type' => 'Extract',
+            'id' => 42,
+        ]);
 
-        self::assertSame('/api/extracts/42', $resource['@id']);
-        self::assertSame('Extract', $resource['@type']);
-        self::assertSame(42, $resource['id']);
-        self::assertTrue(isset($resource['@id']));
-        self::assertFalse($resource->isLoaded());
-        self::assertSame(0, $this->requestCount());
+        static::assertSame('/api/extracts/42', $resource['@id']);
+        static::assertSame('Extract', $resource['@type']);
+        static::assertSame(42, $resource['id']);
+        static::assertTrue(isset($resource['@id']));
+        static::assertFalse($resource->isLoaded());
+        static::assertSame(0, $this->requestCount());
     }
 
     public function testBlocksHydraKeys(): void
@@ -98,34 +97,34 @@ final class LazyResourceTest extends TestCase
 
         try {
             $resource['hydra:view'];
-            self::fail('Reading a hydra key should throw.');
+            static::fail('Reading a hydra key should throw.');
         } catch (\OutOfBoundsException) {
         }
 
         try {
             $resource['hydra:totalItems'] = 2;
-            self::fail('Writing a hydra key should throw.');
+            static::fail('Writing a hydra key should throw.');
         } catch (\OutOfBoundsException) {
         }
 
         try {
             unset($resource['hydra:view']);
-            self::fail('Unsetting a hydra key should throw.');
+            static::fail('Unsetting a hydra key should throw.');
         } catch (\OutOfBoundsException) {
         }
 
-        self::assertFalse(isset($resource['hydra:view']));
+        static::assertFalse(isset($resource['hydra:view']));
 
         $keys = \array_keys(\iterator_to_array($resource));
-        self::assertNotContains('hydra:view', $keys);
-        self::assertNotContains('hydra:totalItems', $keys);
-        self::assertContains('@id', $keys);
-        self::assertContains('@type', $keys);
-        self::assertContains('@context', $keys);
-        self::assertContains('title', $keys);
+        static::assertNotContains('hydra:view', $keys);
+        static::assertNotContains('hydra:totalItems', $keys);
+        static::assertContains('@id', $keys);
+        static::assertContains('@type', $keys);
+        static::assertContains('@context', $keys);
+        static::assertContains('title', $keys);
 
-        self::assertCount(4, $resource);
-        self::assertSame(0, $this->requestCount());
+        static::assertCount(4, $resource);
+        static::assertSame(0, $this->requestCount());
     }
 
     public function testOffsetGetThrowsOnMissingKey(): void
@@ -155,11 +154,8 @@ final class LazyResourceTest extends TestCase
         self::presetTokens($client);
         $resource = new LazyResource($client, self::EXTRACT_RESOURCE, new ResourceCache());
 
-        self::assertSame(
-            '{"@id":"\/api\/extracts\/42","title":"Extract 42"}',
-            \json_encode($resource),
-        );
-        self::assertTrue($resource->isLoaded());
-        self::assertSame(1, $this->requestCount());
+        static::assertSame('{"@id":"\/api\/extracts\/42","title":"Extract 42"}', \json_encode($resource));
+        static::assertTrue($resource->isLoaded());
+        static::assertSame(1, $this->requestCount());
     }
 }

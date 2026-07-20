@@ -10,12 +10,18 @@ use Symfony\Component\Dotenv\Dotenv;
 
 $dotenv = new Dotenv();
 foreach (['.env', '.env.local'] as $file) {
-    if (\is_file(__DIR__ . '/' . $file)) {
-        $dotenv->load(__DIR__ . '/' . $file);
+    if (!\is_file(__DIR__ . '/' . $file)) {
+        continue;
     }
+
+    $dotenv->load(__DIR__ . '/' . $file);
 }
 
-$env = static fn (string $name): string => $_ENV[$name] ?? (\getenv($name) ?: '');
+$env = static function (string $name): string {
+    $value = $_ENV[$name] ?? \getenv($name);
+
+    return \is_string($value) ? $value : '';
+};
 
 $client = new BiblIndexClient(
     $env('BIBLINDEX_API_URL'),
@@ -38,7 +44,7 @@ if ($collection->isEmpty()) {
 }
 
 $item = $collection[0];
-printf("First member is lazy: %s\n", \var_export($item instanceof LazyResource, true));
+printf("First member is lazy: %s\n", \var_export($item instanceof LazyResource, return: true));
 
 echo "Reading a field on the quotation now triggers the item fetch.\n";
 $quotationId = $item['@id'] ?? $item['id'] ?? 'unknown';
@@ -50,14 +56,14 @@ foreach (['extract', 'work', 'works'] as $linkedProperty) {
     }
 
     $linkedValue = $item[$linkedProperty];
-    printf("%s is lazy: %s\n", $linkedProperty, \var_export($linkedValue instanceof LazyResource, true));
+    printf("%s is lazy: %s\n", $linkedProperty, \var_export($linkedValue instanceof LazyResource, return: true));
 
     if (\is_array($linkedValue) && $linkedValue !== []) {
         $firstLinkedValue = $linkedValue[0];
         printf(
             "First %s item is lazy: %s\n",
             $linkedProperty,
-            \var_export($firstLinkedValue instanceof LazyResource, true),
+            \var_export($firstLinkedValue instanceof LazyResource, return: true),
         );
         printf("Reading a field on %s[0] now triggers its fetch.\n", $linkedProperty);
         $firstLinkedValueId = $firstLinkedValue['@id'] ?? $firstLinkedValue['id'] ?? null;

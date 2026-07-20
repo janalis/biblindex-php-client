@@ -20,7 +20,7 @@ trait ClientFactoryTrait
     private const string RESOURCE_PATH = '/api/quotations';
     private const string RESOURCE_URL = self::BASE_URL . self::RESOURCE_PATH;
 
-    /** @var list<array{method: string, url: string, options: array<string, mixed>}> */
+    /** @var list<array{method: string, url: string, options: array<array-key, mixed>}> */
     private array $requests = [];
 
     /**
@@ -36,7 +36,9 @@ trait ClientFactoryTrait
         $this->requests = [];
         $queue = $responses;
 
-        $mock = new MockHttpClient(function (string $method, string $url, array $options) use (&$queue): ResponseInterface {
+        $mock = new MockHttpClient(function (string $method, string $url, array $options) use (
+            &$queue,
+        ): ResponseInterface {
             $this->requests[] = ['method' => $method, 'url' => $url, 'options' => $options];
             if ($queue === []) {
                 Assert::fail(\sprintf('Unexpected extra request: %s %s', $method, $url));
@@ -99,19 +101,18 @@ trait ClientFactoryTrait
 
     private function requestHeader(int $index, string $name): ?string
     {
-        $lines = $this->requests[$index]['options']['normalized_headers'][\strtolower($name)] ?? [];
-        foreach ($lines as $line) {
-            return \explode(': ', $line, 2)[1];
-        }
+        $line = $this->requests[$index]['options']['normalized_headers'][\strtolower($name)][0] ?? null;
 
-        return null;
+        return $line === null ? null : \explode(': ', $line, limit: 2)[1];
     }
 
     /** @return array<string, string> Decoded x-www-form-urlencoded POST body. */
     private function requestForm(int $index): array
     {
+        $form = [];
         \parse_str((string) ($this->requests[$index]['options']['body'] ?? ''), $form);
 
+        /** @var array<string, string> $form */
         return $form;
     }
 
@@ -119,6 +120,6 @@ trait ClientFactoryTrait
     {
         $timeout = $this->requests[$index]['options']['timeout'] ?? null;
 
-        return $timeout === null ? null : (float) $timeout;
+        return \is_float($timeout) || \is_int($timeout) || \is_numeric($timeout) ? (float) $timeout : null;
     }
 }

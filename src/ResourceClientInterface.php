@@ -37,7 +37,7 @@ interface ResourceClientInterface
     /**
      * Resolve the next page of a Hydra collection from its hydra:view link.
      *
-     * @param array<string, mixed> $data
+     * @param array<array-key, mixed> $data
      */
     public function nextPageResource(array $data): ?string;
 

@@ -1,0 +1,64 @@
+version = "1"
+php-version = "8.4"
+
+[source]
+paths = ["src", "test", "example.php"]
+includes = ["vendor"]
+extensions = ["php"]
+
+[formatter]
+# Symfony's coding standard builds on PSR-12; Symfony-specific conventions
+# are covered by the linter's symfony integration below. The overrides align
+# the preset with Symfony style: `strict_types=1`, trailing commas, no
+# padding inside grouping parentheses.
+preset = "psr-12"
+trailing-comma = true
+space-around-assignment-in-declare = false
+space-within-grouping-parenthesis = false
+
+[linter]
+integrations = ["symfony", "phpunit"]
+
+[linter.rules]
+# Fake OAuth fixtures ("user"/"pass") and the expected-exception try/catch
+# pattern are deliberate in the test suite.
+no-literal-password = { exclude = ["test"] }
+no-empty-catch-clause = { exclude = ["test"] }
+# The public API mirrors Doctrine's Collection surface and the client ports a
+# reference implementation; size/complexity metrics flag that by design.
+too-many-methods = { enabled = false }
+kan-defect = { enabled = false }
+cyclomatic-complexity = { enabled = false }
+# The client constructor carries the full OAuth configuration.
+excessive-parameter-list = { threshold = 10 }
+# isset() over ArrayAccess is the exact behavior under test and is idiomatic
+# for optional array keys.
+no-isset = { enabled = false }
+
+[analyzer]
+find-unused-expressions = true
+find-unused-definitions = true
+# The client's domain is decoded JSON (`mixed` end to end), and the code
+# keeps defensive runtime guards that the type model reports as redundant
+# (re-entrant lazy loading, Doctrine template narrowing, parse_url edge
+# cases).
+ignore = [
+    "mixed-assignment",
+    "mixed-array-access",
+    "mixed-argument",
+    "mixed-method-access",
+    "mixed-property-type-coercion",
+    "redundant-type-comparison",
+    "redundant-logical-operation",
+    "redundant-comparison",
+    "redundant-condition",
+    "redundant-null-coalesce",
+    "impossible-type-comparison",
+    "impossible-condition",
+    "impossible-assignment",
+    # Tracks pagination state for parity with the reference implementation.
+    { code = "write-only-property", in = "src/LazyCollection.php" },
+    # `$resource[] = 'value'` and URL-shape assertions are the test subject.
+    { code = "invalid-array-index", in = "test" },
+    { code = "possibly-invalid-argument", in = "test" },
+]

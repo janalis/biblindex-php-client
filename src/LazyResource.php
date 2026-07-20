@@ -13,22 +13,22 @@ namespace BiblIndex\Client;
  * exposed. Identity keys (@id, @type, id) present in the seed captured from
  * the parent response are served without triggering a fetch.
  *
- * @implements \ArrayAccess<string, mixed>
- * @implements \IteratorAggregate<string, mixed>
+ * @implements \ArrayAccess<array-key, mixed>
+ * @implements \IteratorAggregate<array-key, mixed>
  */
 final class LazyResource implements \ArrayAccess, \Countable, \IteratorAggregate, \JsonSerializable
 {
     private const array SEED_KEYS = ['@id', '@type', 'id'];
 
-    /** @var array<string, mixed> */
+    /** @var array<array-key, mixed> */
     private readonly array $seed;
 
-    /** @var array<string, mixed>|null */
+    /** @var array<array-key, mixed>|null */
     private ?array $data = null;
 
     private bool $loading = false;
 
-    /** @param array<string, mixed>|null $seed */
+    /** @param array<array-key, mixed>|null $seed */
     public function __construct(
         private readonly ResourceClientInterface $client,
         private readonly string $resource,
@@ -52,12 +52,13 @@ final class LazyResource implements \ArrayAccess, \Countable, \IteratorAggregate
 
     public function offsetExists(mixed $offset): bool
     {
-        if (\in_array($offset, ResourceClientInterface::HYDRA_KEYS, true)) {
+        if (\in_array($offset, ResourceClientInterface::HYDRA_KEYS, strict: true)) {
             return false;
         }
 
-        if ($this->data === null
-            && \in_array($offset, self::SEED_KEYS, true)
+        if (
+            $this->data === null
+            && \in_array($offset, self::SEED_KEYS, strict: true)
             && \array_key_exists($offset, $this->seed)
         ) {
             return true;
@@ -70,8 +71,9 @@ final class LazyResource implements \ArrayAccess, \Countable, \IteratorAggregate
     {
         $this->assertNotHydraKey($offset);
 
-        if ($this->data === null
-            && \in_array($offset, self::SEED_KEYS, true)
+        if (
+            $this->data === null
+            && \in_array($offset, self::SEED_KEYS, strict: true)
             && \array_key_exists($offset, $this->seed)
         ) {
             return $this->seed[$offset];
@@ -114,33 +116,35 @@ final class LazyResource implements \ArrayAccess, \Countable, \IteratorAggregate
         return \count($this->toArray());
     }
 
-    /** @return \Generator<string, mixed> */
+    /** @return \Generator<array-key, mixed> */
     public function getIterator(): \Generator
     {
         foreach ($this->load() as $key => $value) {
-            if (!\in_array($key, ResourceClientInterface::HYDRA_KEYS, true)) {
-                yield $key => $value;
+            if (\in_array($key, ResourceClientInterface::HYDRA_KEYS, strict: true)) {
+                continue;
             }
+
+            yield $key => $value;
         }
     }
 
     /**
      * Loaded data with Hydra metadata keys filtered out. Triggers a fetch.
      *
-     * @return array<string, mixed>
+     * @return array<array-key, mixed>
      */
     public function toArray(): array
     {
         return \array_diff_key($this->load(), \array_flip(ResourceClientInterface::HYDRA_KEYS));
     }
 
-    /** @return array<string, mixed> */
+    /** @return array<array-key, mixed> */
     public function jsonSerialize(): array
     {
         return $this->toArray();
     }
 
-    /** @return array<string, mixed> */
+    /** @return array<array-key, mixed> */
     private function load(): array
     {
         if ($this->data !== null) {
@@ -162,7 +166,10 @@ final class LazyResource implements \ArrayAccess, \Countable, \IteratorAggregate
         }
 
         if (!\is_array($wrapped)) {
-            throw new \UnexpectedValueException(\sprintf('Resource "%s" did not return a JSON object.', $this->resource));
+            throw new \UnexpectedValueException(\sprintf(
+                'Resource "%s" did not return a JSON object.',
+                $this->resource,
+            ));
         }
 
         return $this->data = $wrapped;
@@ -170,7 +177,7 @@ final class LazyResource implements \ArrayAccess, \Countable, \IteratorAggregate
 
     private function assertNotHydraKey(mixed $offset): void
     {
-        if (\in_array($offset, ResourceClientInterface::HYDRA_KEYS, true)) {
+        if (\in_array($offset, ResourceClientInterface::HYDRA_KEYS, strict: true)) {
             throw new \OutOfBoundsException(\sprintf('Key "%s" is not exposed by lazy resources.', $offset));
         }
     }

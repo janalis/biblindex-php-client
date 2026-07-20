@@ -67,9 +67,11 @@ class BiblIndexClient implements ResourceClientInterface
     public function __construct(
         public readonly string $baseUrl,
         private readonly string $username,
-        #[\SensitiveParameter] private readonly string $password,
+        #[\SensitiveParameter]
+        private readonly string $password,
         private readonly string $clientId,
-        #[\SensitiveParameter] private readonly string $clientSecret,
+        #[\SensitiveParameter]
+        private readonly string $clientSecret,
         public readonly string $accept = self::JSON_LD_MIME_TYPE,
         public readonly ?float $timeout = self::DEFAULT_TIMEOUT,
         public readonly int $retries = 0,
@@ -118,10 +120,10 @@ class BiblIndexClient implements ResourceClientInterface
         $cache->set($currentResource, $data);
 
         $wrapped = $this->wrapLinkedResources($data, $currentResource, $cache);
-        if ($this->isJsonList($data) && \is_array($wrapped)) {
+        if (\is_array($data) && \array_is_list($data) && \is_array($wrapped)) {
             return new LazyCollection(
                 $this,
-                $wrapped,
+                \array_values($wrapped),
                 $currentResource,
                 $this->nextPlainJsonPageResource($currentResource),
                 null,
@@ -148,7 +150,8 @@ class BiblIndexClient implements ResourceClientInterface
             $this->fetchTokens();
         }
 
-        if ($this->expiresIn !== null
+        if (
+            $this->expiresIn !== null
             && $this->expiresIn < new \DateTimeImmutable(\sprintf('+%d seconds', self::TOKEN_EXPIRY_LEEWAY_SECONDS))
         ) {
             $this->refreshTokens();
@@ -162,7 +165,7 @@ class BiblIndexClient implements ResourceClientInterface
         }
 
         // getContent() throws on any remaining >= 400 status.
-        return \json_decode($response->getContent(), true, 512, \JSON_THROW_ON_ERROR);
+        return \json_decode($response->getContent(), associative: true, depth: 512, flags: \JSON_THROW_ON_ERROR);
     }
 
     /**
@@ -211,17 +214,19 @@ class BiblIndexClient implements ResourceClientInterface
      */
     public function wrapLinkedResources(mixed $data, string $currentResource, ResourceCache $cache): mixed
     {
-        if ($this->isJsonList($data)) {
+        // A decoded empty JSON object also matches the list check ({} decodes
+        // to []); treating it as an empty list is benign for every caller.
+        if (\is_array($data) && \array_is_list($data)) {
             $wrappedItems = [];
             foreach ($data as $item) {
-                if (\is_array($item) && !\array_is_list($item)) {
-                    $resource = $this->linkedResource($item['@id'] ?? null)
-                        ?? $this->resourceFromCollectionItem($item, $currentResource);
-                    $seed = $item;
-                } else {
-                    $resource = $this->linkedResource($item);
-                    $seed = null;
-                }
+                $isMap = \is_array($item) && !\array_is_list($item);
+                $seed = $isMap ? $item : null;
+                $resource = $isMap
+                    ? $this->linkedResource($item['@id'] ?? null) ?? $this->resourceFromCollectionItem(
+                        $item,
+                        $currentResource,
+                    )
+                    : $this->linkedResource($item);
 
                 if ($resource !== null && $resource !== $currentResource) {
                     $wrappedItems[] = $this->lazyResource($resource, $cache, $seed);
@@ -241,7 +246,7 @@ class BiblIndexClient implements ResourceClientInterface
 
                 return new LazyCollection(
                     $this,
-                    \is_array($wrappedMembers) ? $wrappedMembers : [],
+                    \is_array($wrappedMembers) ? \array_values($wrappedMembers) : [],
                     $currentResource,
                     $this->nextPageResource($data),
                     \is_int($data['hydra:totalItems'] ?? null) ? $data['hydra:totalItems'] : null,
@@ -265,7 +270,7 @@ class BiblIndexClient implements ResourceClientInterface
      *
      * @internal Part of {@see ResourceClientInterface} for the lazy wrappers.
      *
-     * @param array<string, mixed> $data
+     * @param array<array-key, mixed> $data
      */
     public function nextPageResource(array $data): ?string
     {
@@ -295,7 +300,7 @@ class BiblIndexClient implements ResourceClientInterface
         // to the last value.
         $query = [];
         foreach (\explode('&', $queryString) as $pair) {
-            [$key, $value] = \array_pad(\explode('=', $pair, 2), 2, '');
+            [$key, $value] = \array_pad(\explode('=', $pair, limit: 2), length: 2, value: '');
             $query[\urldecode($key)] = \urldecode($value);
         }
 
@@ -320,7 +325,7 @@ class BiblIndexClient implements ResourceClientInterface
         $options = [
             'query' => $params,
             'headers' => [
-                'Authorization' => 'Bearer ' . $this->accessToken,
+                'Authorization' => 'Bearer ' . ($this->accessToken ?? ''),
                 'Accept' => $this->accept,
             ],
         ];
@@ -360,7 +365,7 @@ class BiblIndexClient implements ResourceClientInterface
         }
 
         $response = $this->tokenClient->request('POST', $this->baseUrl . '/api/token', $options);
-        $data = \json_decode($response->getContent(), true, 512, \JSON_THROW_ON_ERROR);
+        $data = \json_decode($response->getContent(), associative: true, depth: 512, flags: \JSON_THROW_ON_ERROR);
 
         $this->accessToken = $data['access_token'];
         $this->refreshToken = $data['refresh_token'];
@@ -370,9 +375,9 @@ class BiblIndexClient implements ResourceClientInterface
     /**
      * Wrap resource links in a map without replacing its metadata.
      *
-     * @param array<string, mixed> $data
+     * @param array<array-key, mixed> $data
      *
-     * @return array<string, mixed>
+     * @return array<array-key, mixed>
      */
     private function wrapLinkedResourceProperties(array $data, string $currentResource, ResourceCache $cache): array
     {
@@ -383,15 +388,13 @@ class BiblIndexClient implements ResourceClientInterface
                 continue;
             }
 
-            if (\in_array($key, self::HYDRA_KEYS, true)) {
+            if (\in_array($key, self::HYDRA_KEYS, strict: true)) {
                 continue;
             }
 
             $resource = $this->linkedResource($value);
             if ($resource !== null) {
-                $wrapped[$key] = $resource === $currentResource
-                    ? $value
-                    : $this->lazyResource($resource, $cache);
+                $wrapped[$key] = $resource === $currentResource ? $value : $this->lazyResource($resource, $cache);
                 continue;
             }
 
@@ -409,7 +412,7 @@ class BiblIndexClient implements ResourceClientInterface
         return $wrapped;
     }
 
-    /** @param array<string, mixed>|null $seed */
+    /** @param array<array-key, mixed>|null $seed */
     private function lazyResource(string $resource, ResourceCache $cache, ?array $seed = null): mixed
     {
         if ($cache->has($resource)) {
@@ -425,7 +428,7 @@ class BiblIndexClient implements ResourceClientInterface
     /**
      * Infer an item resource from a collection item carrying only an id.
      *
-     * @param array<string, mixed> $item
+     * @param array<array-key, mixed> $item
      */
     private function resourceFromCollectionItem(array $item, string $currentResource): ?string
     {
@@ -434,7 +437,7 @@ class BiblIndexClient implements ResourceClientInterface
             return null;
         }
 
-        $collectionResource = \rtrim(\explode('?', $currentResource, 2)[0], '/');
+        $collectionResource = \rtrim(\explode('?', $currentResource, limit: 2)[0], characters: '/');
         if (!\str_starts_with($collectionResource, '/api/')) {
             return null;
         }
@@ -461,7 +464,8 @@ class BiblIndexClient implements ResourceClientInterface
                 return null;
             }
 
-            if (($parsedValue['scheme'] ?? null) !== ($parsedBaseUrl['scheme'] ?? null)
+            if (
+                ($parsedValue['scheme'] ?? null) !== ($parsedBaseUrl['scheme'] ?? null)
                 || ($parsedValue['host'] ?? null) !== ($parsedBaseUrl['host'] ?? null)
                 || ($parsedValue['port'] ?? null) !== ($parsedBaseUrl['port'] ?? null)
             ) {
@@ -479,6 +483,9 @@ class BiblIndexClient implements ResourceClientInterface
         }
 
         $resource = $this->normalizeResource($value);
+        // This compares a URL path, not a credential — the rule pattern-matches
+        // on the word "token".
+        // @mago-ignore lint:no-insecure-comparison
         if ($resource === '/api/token' || !\str_starts_with($resource, '/api/')) {
             return null;
         }
@@ -515,15 +522,5 @@ class BiblIndexClient implements ResourceClientInterface
         $separator = \str_contains($resource, '?') ? '&' : '?';
 
         return $resource . $separator . $query;
-    }
-
-    /**
-     * Whether the decoded value is a JSON array (list). An empty JSON object
-     * also decodes to [] and is treated as an empty list — benign for every
-     * caller.
-     */
-    private function isJsonList(mixed $value): bool
-    {
-        return \is_array($value) && \array_is_list($value);
     }
 }

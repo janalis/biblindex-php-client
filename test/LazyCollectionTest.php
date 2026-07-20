@@ -53,19 +53,19 @@ final class LazyCollectionTest extends TestCase
         self::presetTokens($client);
         $collection = $this->makeCollection($client, [1, 2]);
 
-        self::assertSame(1, $collection[0]);
-        self::assertSame([1], $collection->slice(0, 1));
-        self::assertSame([], $collection->slice(0, 0));
-        self::assertSame(0, $this->requestCount());
+        static::assertSame(1, $collection[0]);
+        static::assertSame([1], $collection->slice(0, 1));
+        static::assertSame([], $collection->slice(0, 0));
+        static::assertSame(0, $this->requestCount());
 
-        self::assertInstanceOf(LazyResource::class, $collection[2]);
-        self::assertSame(3, $collection[2]['id']);
-        self::assertSame(3, $collection->getLoadedItems());
-        self::assertSame(1, $this->requestCount());
-        self::assertSame(self::BASE_URL . '/api/things?page=2', $this->requestUrl(0));
+        static::assertInstanceOf(LazyResource::class, $collection[2]);
+        static::assertSame(3, $collection[2]['id']);
+        static::assertSame(3, $collection->getLoadedItems());
+        static::assertSame(1, $this->requestCount());
+        static::assertSame(self::BASE_URL . '/api/things?page=2', $this->requestUrl(0));
 
-        self::assertSame([1, 2, 3], self::ids($collection));
-        self::assertSame(2, $this->requestCount());
+        static::assertSame([1, 2, 3], self::ids($collection));
+        static::assertSame(2, $this->requestCount());
     }
 
     public function testMutatorsInitializeThenMutate(): void
@@ -80,15 +80,15 @@ final class LazyCollectionTest extends TestCase
         // Divergence from the Python client: mutating fetches all remaining
         // pages first so indices are unambiguous.
         $collection->set(0, 10);
-        self::assertSame(2, $this->requestCount());
-        self::assertTrue($collection->isInitialized());
+        static::assertSame(2, $this->requestCount());
+        static::assertTrue($collection->isInitialized());
 
         $collection->add(11);
         $removed = $collection->remove(2);
-        self::assertInstanceOf(LazyResource::class, $removed);
-        self::assertSame([10, 2, 11], $collection->getValues());
-        self::assertCount(3, $collection);
-        self::assertSame(2, $this->requestCount());
+        static::assertInstanceOf(LazyResource::class, $removed);
+        static::assertSame([10, 2, 11], $collection->getValues());
+        static::assertCount(3, $collection);
+        static::assertSame(2, $this->requestCount());
     }
 
     public function testIterationAndOpenSliceFetchAllPages(): void
@@ -102,22 +102,17 @@ final class LazyCollectionTest extends TestCase
         self::presetTokens($client);
 
         $collection = $this->makeCollection($client, [1]);
-        self::assertSame([1, 2], self::ids($collection));
-        self::assertSame(2, $this->requestCount());
+        static::assertSame([1, 2], self::ids($collection));
+        static::assertSame(2, $this->requestCount());
 
         $openSlice = $collection->slice(0);
-        self::assertSame(1, $openSlice[0]);
-        self::assertInstanceOf(LazyResource::class, $openSlice[1]);
-        self::assertSame(2, $this->requestCount());
+        static::assertSame(1, $openSlice[0]);
+        static::assertInstanceOf(LazyResource::class, $openSlice[1]);
+        static::assertSame(2, $this->requestCount());
 
-        $otherCollection = $this->makeCollection(
-            $client,
-            [10],
-            '/api/more-things?page=1',
-            '/api/more-things?page=2',
-        );
-        self::assertSame([10, 20], self::ids($otherCollection->toArray()));
-        self::assertSame(4, $this->requestCount());
+        $otherCollection = $this->makeCollection($client, [10], '/api/more-things?page=1', '/api/more-things?page=2');
+        static::assertSame([10, 20], self::ids($otherCollection->toArray()));
+        static::assertSame(4, $this->requestCount());
     }
 
     public function testReturnsNullWhenNextPageIsNotACollection(): void
@@ -128,9 +123,9 @@ final class LazyCollectionTest extends TestCase
 
         // Divergence from the Python client (IndexError): out-of-range
         // indices follow the Doctrine convention and return null.
-        self::assertNull($collection[1]);
-        self::assertFalse($collection->containsKey(1));
-        self::assertSame(1, $this->requestCount());
+        static::assertNull($collection[1]);
+        static::assertFalse($collection->containsKey(1));
+        static::assertSame(1, $this->requestCount());
     }
 
     public function testFollowsHydraNextWhenPageHasNoMembers(): void
@@ -145,8 +140,8 @@ final class LazyCollectionTest extends TestCase
         self::presetTokens($client);
         $collection = $this->makeCollection($client, [1]);
 
-        self::assertSame('/api/things/2', $collection[1]['@id']);
-        self::assertSame(2, $this->requestCount());
+        static::assertSame('/api/things/2', $collection[1]['@id']);
+        static::assertSame(2, $this->requestCount());
     }
 
     public function testStopsOnScalarNextPage(): void
@@ -155,8 +150,8 @@ final class LazyCollectionTest extends TestCase
         self::presetTokens($client);
         $collection = $this->makeCollection($client, [1]);
 
-        self::assertSame([1], \iterator_to_array($collection));
-        self::assertSame(1, $this->requestCount());
+        static::assertSame([1], \iterator_to_array($collection));
+        static::assertSame(1, $this->requestCount());
     }
 
     public function testCountReturnsTotalItemsWithoutFetching(): void
@@ -164,10 +159,10 @@ final class LazyCollectionTest extends TestCase
         $client = $this->makeClient();
         $collection = $this->makeCollection($client, [1], totalItems: 5);
 
-        self::assertCount(5, $collection);
-        self::assertFalse($collection->isEmpty());
-        self::assertSame(1, $collection->getLoadedItems());
-        self::assertSame(0, $this->requestCount());
+        static::assertCount(5, $collection);
+        static::assertFalse($collection->isEmpty());
+        static::assertSame(1, $collection->getLoadedItems());
+        static::assertSame(0, $this->requestCount());
     }
 
     public function testCountFetchesAllPagesWhenTotalUnknown(): void
@@ -179,22 +174,22 @@ final class LazyCollectionTest extends TestCase
         self::presetTokens($client);
         $collection = $this->makeCollection($client, [1]);
 
-        self::assertCount(2, $collection);
-        self::assertSame(2, $this->requestCount());
+        static::assertCount(2, $collection);
+        static::assertSame(2, $this->requestCount());
     }
 
     public function testFirstFetchesOnlyTheNeededPage(): void
     {
         $client = $this->makeClient();
         $collection = $this->makeCollection($client, [1]);
-        self::assertSame(1, $collection->first());
-        self::assertSame(0, $this->requestCount());
+        static::assertSame(1, $collection->first());
+        static::assertSame(0, $this->requestCount());
 
         $clientWithPage = $this->makeClient([new JsonMockResponse([5])]);
         self::presetTokens($clientWithPage);
         $emptyFirstPage = $this->makeCollection($clientWithPage, []);
-        self::assertSame(5, $emptyFirstPage->first());
-        self::assertSame(1, $this->requestCount());
+        static::assertSame(5, $emptyFirstPage->first());
+        static::assertSame(1, $this->requestCount());
     }
 
     public function testWholeCollectionOperationsFetchAllPages(): void
@@ -206,22 +201,22 @@ final class LazyCollectionTest extends TestCase
         self::presetTokens($client);
         $collection = $this->makeCollection($client, [1]);
 
-        self::assertSame(2, $collection->last());
-        self::assertSame(2, $this->requestCount());
+        static::assertSame(2, $collection->last());
+        static::assertSame(2, $this->requestCount());
 
-        self::assertTrue($collection->contains(2));
-        self::assertSame([2, 4], $collection->map(static fn (int $item): int => $item * 2)->getValues());
-        self::assertSame([1], $collection->filter(static fn (int $item): bool => $item % 2 === 1)->getValues());
-        self::assertSame(2, $this->requestCount());
+        static::assertTrue($collection->contains(2));
+        static::assertSame([2, 4], $collection->map(static fn(int $item): int => $item * 2)->getValues());
+        static::assertSame([1], $collection->filter(static fn(int $item): bool => ($item % 2) === 1)->getValues());
+        static::assertSame(2, $this->requestCount());
     }
 
     public function testIsEmptyDoesNotFetchWhenAnItemIsLoaded(): void
     {
         $client = $this->makeClient();
 
-        self::assertFalse($this->makeCollection($client, [1])->isEmpty());
-        self::assertTrue($this->makeCollection($client, [], totalItems: 0)->isEmpty());
-        self::assertSame(0, $this->requestCount());
+        static::assertFalse($this->makeCollection($client, [1])->isEmpty());
+        static::assertTrue($this->makeCollection($client, [], totalItems: 0)->isEmpty());
+        static::assertSame(0, $this->requestCount());
     }
 
     public function testClearDropsStateWithoutFetching(): void
@@ -231,16 +226,16 @@ final class LazyCollectionTest extends TestCase
 
         $collection->clear();
 
-        self::assertCount(0, $collection);
-        self::assertSame([], $collection->toArray());
-        self::assertTrue($collection->isEmpty());
-        self::assertSame(0, $this->requestCount());
+        static::assertCount(0, $collection);
+        static::assertSame([], $collection->toArray());
+        static::assertTrue($collection->isEmpty());
+        static::assertSame(0, $this->requestCount());
     }
 
     public function testImplementsDoctrineCollection(): void
     {
         $collection = $this->makeCollection($this->makeClient(), []);
 
-        self::assertInstanceOf(Collection::class, $collection);
+        static::assertInstanceOf(Collection::class, $collection);
     }
 }

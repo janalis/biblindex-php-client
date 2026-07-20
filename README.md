@@ -201,16 +201,32 @@ bin/phpunit
 The suite mocks all HTTP traffic with Symfony's `MockHttpClient` — no network
 access needed.
 
+## Code quality
+
+Formatting, linting and static analysis are handled by
+[Mago](https://mago.carthage.software/) (Symfony coding standard: PSR-12
+formatter preset plus the `symfony` and `phpunit` linter integrations),
+configured in [`mago.toml`](mago.toml) and enforced by CI:
+
+```bash
+composer format        # format in place
+composer format:check  # verify formatting
+composer lint          # lint
+composer analyze       # static analysis
+composer check         # format check + lint + analysis + tests
+```
+
 ## Publishing a new version
 
 Releases are published to [Packagist](https://packagist.org/packages/janalis/biblindex-client).
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+composer release:patch   # or release:minor / release:major
 ```
 
-The [Release workflow](.github/workflows/release.yml) then runs the full test
+This computes the next version from the latest `v*` tag (starting from
+v0.0.0), creates the annotated tag and pushes it. The
+[Release workflow](.github/workflows/release.yml) then runs the full test
 suite; only when it is green does it create a GitHub Release with
 auto-generated notes and ping the Packagist update API so the new version
 becomes installable. The ping requires the `PACKAGIST_API_TOKEN` repository
