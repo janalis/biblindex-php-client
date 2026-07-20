@@ -5,8 +5,7 @@
 ![Cross Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20WSL-lightgrey)
 [![CI](https://github.com/janalis/biblindex-php-client/actions/workflows/ci.yml/badge.svg)](https://github.com/janalis/biblindex-php-client/actions/workflows/ci.yml)
 
-PHP client for the BiblIndex API — the PHP equivalent of
-[biblindex-python-client](https://github.com/janalis/biblindex-python-client).
+PHP client for the BiblIndex API.
 
 ## Maintainers
 
@@ -175,24 +174,22 @@ $item = $collection[2];              // fetches /api/quotations?page=2
 echo $item['id'];                    // reads from the fetched item
 ```
 
-### Differences from the Python client
+### Behavior notes
 
-- `LazyResource` implements `ArrayAccess`/`Countable`/`IteratorAggregate`
-  (PHP has no `MutableMapping`); use `$resource->toArray()` where Python used
-  `dict(resource)`. Missing and blocked keys throw `\OutOfBoundsException`.
+- `LazyResource` implements `ArrayAccess`/`Countable`/`IteratorAggregate`;
+  use `$resource->toArray()` to get the plain array. Missing and blocked keys
+  throw `\OutOfBoundsException`.
 - `LazyCollection` implements Doctrine's `Collection` interface.
-  Out-of-range indices return `null` (Doctrine convention) instead of raising
-  `IndexError`, negative indices are not supported (use `last()`), and
-  mutators fetch all remaining pages before mutating instead of editing the
-  partially loaded window.
+  Out-of-range indices return `null` (Doctrine convention), negative indices
+  are not supported (use `last()`), and mutators fetch all remaining pages
+  before mutating.
 - `count()` on a collection whose total is unknown fetches all remaining
-  pages (Python's `len()` returned the loaded count).
-- No `close()`/context manager — Symfony HttpClient needs no explicit
-  session cleanup.
-- `timeout: null` defers to the transport default instead of disabling the
-  timeout, and there is no `(connect, read)` timeout pair.
+  pages.
+- No `close()` call is needed — Symfony HttpClient needs no explicit session
+  cleanup.
+- `timeout: null` defers to the transport default.
 - Array query parameters are encoded in `key[0]=a&key[1]=b` bracket style
-  (`http_build_query`) rather than repeated `key=a&key=b` pairs.
+  (`http_build_query`).
 
 ## Testing
 
