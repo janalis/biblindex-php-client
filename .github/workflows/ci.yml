@@ -8,19 +8,28 @@ on:
 jobs:
   tests:
     name: Tests (PHP ${{ matrix.php }})
-    runs-on: ubuntu-latest
+    # Self-hosted runners on the local ARC (Actions Runner Controller)
+    # scale set; the ARC runner image ships no PHP, so the job runs in a
+    # php:<version>-cli container instead of using setup-php.
+    runs-on: biblindex-php-client-runners
     strategy:
       fail-fast: false
       matrix:
         php: ['8.4', '8.5']
+    container:
+      image: php:${{ matrix.php }}-cli
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: ${{ matrix.php }}
-          coverage: none
+      - name: Install system dependencies
+        run: apt-get update && apt-get install -y --no-install-recommends git unzip
+
+      - name: Install Composer
+        run: |
+          php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+          php composer-setup.php --install-dir=/usr/local/bin --filename=composer
+          rm composer-setup.php
+          composer --version
 
       - name: Validate composer.json
         run: composer validate --strict
