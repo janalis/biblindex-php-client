@@ -204,6 +204,27 @@ bin/phpunit
 The suite mocks all HTTP traffic with Symfony's `MockHttpClient` — no network
 access needed.
 
+## Publishing a new version
+
+Releases are published to [Packagist](https://packagist.org/packages/janalis/biblindex-client).
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The [Release workflow](.github/workflows/release.yml) then runs the full test
+suite; only when it is green does it create a GitHub Release with
+auto-generated notes and ping the Packagist update API so the new version
+becomes installable. The ping requires the `PACKAGIST_API_TOKEN` repository
+secret (the "safe API token" from your [Packagist
+profile](https://packagist.org/profile/)); when it is missing the workflow
+skips the ping with a warning.
+
+CI and releases run on self-hosted runners managed by
+[ARC](https://github.com/actions/actions-runner-controller) (runner scale set
+`biblindex-php-client-runners`).
+
 ## Contributing
 
 This project is open to contributions.
