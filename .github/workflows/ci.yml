@@ -107,7 +107,8 @@ jobs:
             exit 0
           fi
 
-          message="$(git log -1 --pretty=%B)"
+          # Subject line only: commit bodies may mention markers in prose.
+          message="$(git log -1 --pretty=%s)"
           case "$message" in
             *"[release:skip]"*)
               echo "Commit requests no release; skipping."

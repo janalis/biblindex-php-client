@@ -276,7 +276,8 @@ quality) is green is released as the next **patch** version by the
 version (starting from v0.0.0), creates a GitHub Release with auto-generated
 notes and pings the Packagist update API.
 
-Control the release from the commit message:
+Control the release from the commit subject (first line only — the body is
+ignored so prose can mention the markers):
 
 | Marker | Effect |
 | --- | --- |
