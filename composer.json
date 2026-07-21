@@ -4,13 +4,23 @@
     "type": "library",
     "require": {
         "php": ">=8.4",
-        "symfony/http-client": "^8.1",
-        "doctrine/collections": "^3.1"
+        "doctrine/collections": "^3.1",
+        "psr/http-client": "^1.0",
+        "psr/http-factory": "^1.1",
+        "psr/http-message": "^1.1 || ^2.0",
+        "php-http/discovery": "^1.20"
     },
     "require-dev": {
         "phpunit/phpunit": "^13.2",
         "symfony/dotenv": "^8.1",
-        "carthage-software/mago": "^1.44"
+        "carthage-software/mago": "^1.44",
+        "symfony/http-client": "^8.1",
+        "nyholm/psr7": "^1.8",
+        "guzzlehttp/guzzle": "^7.10"
+    },
+    "suggest": {
+        "symfony/http-client": "PSR-18 client usable by default via discovery (pair with a PSR-17 factory such as nyholm/psr7)",
+        "guzzlehttp/guzzle": "PSR-18 client + PSR-17 factories usable by default via discovery"
     },
     "license": "MIT",
     "autoload": {
@@ -32,7 +42,8 @@
     "config": {
         "bin-dir": "bin/",
         "allow-plugins": {
-            "carthage-software/mago": true
+            "carthage-software/mago": true,
+            "php-http/discovery": true
         }
     },
     "scripts": {

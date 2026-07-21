@@ -5,19 +5,24 @@ declare(strict_types=1);
 namespace BiblIndex\Client\Test;
 
 use BiblIndex\Client\BiblIndexClient;
+use BiblIndex\Client\Exception\ClientErrorException;
+use BiblIndex\Client\Exception\HttpException;
+use BiblIndex\Client\Exception\ServerErrorException;
 use BiblIndex\Client\LazyCollection;
 use BiblIndex\Client\ResourceCache;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Client\NetworkExceptionInterface;
 use Symfony\Component\HttpClient\Response\JsonMockResponse;
 use Symfony\Component\HttpClient\Response\MockResponse;
-use Symfony\Contracts\HttpClient\Exception\ClientExceptionInterface;
-use Symfony\Contracts\HttpClient\Exception\ServerExceptionInterface;
 
 #[CoversClass(BiblIndexClient::class)]
+#[UsesClass(ClientErrorException::class)]
+#[UsesClass(HttpException::class)]
 #[UsesClass(LazyCollection::class)]
 #[UsesClass(ResourceCache::class)]
+#[UsesClass(ServerErrorException::class)]
 final class BiblIndexClientTest extends TestCase
 {
     use ClientFactoryTrait;
@@ -28,20 +33,10 @@ final class BiblIndexClientTest extends TestCase
 
         static::assertSame(self::BASE_URL, $client->baseUrl);
         static::assertSame('application/ld+json', $client->accept);
-        static::assertSame(30.0, $client->timeout);
         static::assertSame(0, $client->retries);
         static::assertNull($client->accessToken);
         static::assertNull($client->refreshToken);
         static::assertNull($client->expiresIn);
-    }
-
-    public function testConstructorAcceptsNullTimeout(): void
-    {
-        $client = $this->makeClient([new JsonMockResponse(['ok' => true])], timeout: null);
-        self::presetTokens($client);
-
-        static::assertNull($client->timeout);
-        static::assertSame(['ok' => true], $client->request(self::RESOURCE_PATH));
     }
 
     public function testGetIsNotRetriedByDefault(): void
@@ -52,7 +47,7 @@ final class BiblIndexClientTest extends TestCase
         try {
             $client->request(self::RESOURCE_PATH);
             static::fail('Expected a server exception.');
-        } catch (ServerExceptionInterface) {
+        } catch (ServerErrorException) {
         }
 
         static::assertSame(1, $this->requestCount());
@@ -60,7 +55,7 @@ final class BiblIndexClientTest extends TestCase
 
     public function testGetIsRetriedOnRetryableStatusWhenRetriesEnabled(): void
     {
-        // RetryableHttpClient really sleeps between attempts (~500ms), so the
+        // The retry loop really sleeps between attempts (~500ms), so the
         // scenario is kept to a single retry.
         $client = $this->makeClient([
             new JsonMockResponse(['error' => 'boom'], ['http_code' => 500]),
@@ -74,6 +69,72 @@ final class BiblIndexClientTest extends TestCase
         static::assertSame('GET', $this->requestMethod(1));
     }
 
+    public function testRetriesStopAfterBudgetExhausted(): void
+    {
+        $client = $this->makeClient([
+            new JsonMockResponse(['error' => 'boom'], ['http_code' => 500]),
+            new JsonMockResponse(['error' => 'still boom'], ['http_code' => 500]),
+        ], retries: 1);
+        self::presetTokens($client);
+
+        try {
+            $client->request(self::RESOURCE_PATH);
+            static::fail('Expected a server exception.');
+        } catch (ServerErrorException $exception) {
+            static::assertSame(500, $exception->getStatusCode());
+        }
+
+        static::assertSame(2, $this->requestCount());
+    }
+
+    public function testNetworkErrorsAreRetriedWhenEnabled(): void
+    {
+        // A MockResponse carrying error info surfaces through Psr18Client as
+        // a PSR-18 network exception.
+        $client = $this->makeClient([
+            new MockResponse('', ['error' => 'network down']),
+            new JsonMockResponse(['ok' => true]),
+        ], retries: 1);
+        self::presetTokens($client);
+
+        static::assertSame(['ok' => true], $client->request(self::RESOURCE_PATH));
+        static::assertSame(2, $this->requestCount());
+    }
+
+    public function testNetworkErrorPropagatesWithoutRetries(): void
+    {
+        $client = $this->makeClient([new MockResponse('', ['error' => 'network down'])]);
+        self::presetTokens($client);
+
+        try {
+            $client->request(self::RESOURCE_PATH);
+            static::fail('Expected a network exception.');
+        } catch (NetworkExceptionInterface) {
+        }
+
+        static::assertSame(1, $this->requestCount());
+    }
+
+    public function testHttpExceptionCarriesResponseMetadata(): void
+    {
+        $client = $this->makeClient([new JsonMockResponse(['error' => 'not found'], ['http_code' => 404])]);
+        self::presetTokens($client);
+
+        try {
+            $client->request(self::RESOURCE_PATH);
+            static::fail('Expected a client-error exception.');
+        } catch (ClientErrorException $exception) {
+            static::assertSame(404, $exception->getStatusCode());
+            static::assertSame('GET', $exception->method);
+            static::assertSame(self::RESOURCE_URL, $exception->url);
+            static::assertStringContainsString('not found', (string) $exception->response->getBody());
+            static::assertSame(
+                'HTTP 404 returned for "GET https://api.example.com/api/quotations".',
+                $exception->getMessage(),
+            );
+        }
+    }
+
     public function testTokenPostIsNeverRetried(): void
     {
         $client = $this->makeClient([new JsonMockResponse(['error' => 'boom'], ['http_code' => 500])], retries: 3);
@@ -81,7 +142,7 @@ final class BiblIndexClientTest extends TestCase
         try {
             $client->fetchTokens();
             static::fail('Expected a server exception.');
-        } catch (ServerExceptionInterface) {
+        } catch (ServerErrorException) {
         }
 
         static::assertSame(1, $this->requestCount());
@@ -130,7 +191,7 @@ final class BiblIndexClientTest extends TestCase
         try {
             $client->fetchTokens();
             static::fail('Expected a client exception.');
-        } catch (ClientExceptionInterface) {
+        } catch (ClientErrorException) {
         }
 
         static::assertNull($client->accessToken);
@@ -168,35 +229,11 @@ final class BiblIndexClientTest extends TestCase
         try {
             $client->refreshTokens();
             static::fail('Expected a client exception.');
-        } catch (ClientExceptionInterface) {
+        } catch (ClientErrorException) {
         }
 
         static::assertSame('stale-A', $client->accessToken);
         static::assertSame('revoked-R', $client->refreshToken);
-    }
-
-    public function testRequestPassesTimeoutToGet(): void
-    {
-        $client = $this->makeClient([new JsonMockResponse(['ok' => true])]);
-        self::presetTokens($client);
-
-        $client->request(self::RESOURCE_PATH);
-
-        static::assertSame(30.0, $this->requestTimeout(0));
-    }
-
-    public function testTokenRequestsPassTimeout(): void
-    {
-        $client = $this->makeClient([
-            new JsonMockResponse(self::tokenPayload('A1', 'R1')),
-            new JsonMockResponse(self::tokenPayload('A2', 'R2')),
-        ], timeout: 5.0);
-
-        $client->fetchTokens();
-        $client->refreshTokens();
-
-        static::assertSame(5.0, $this->requestTimeout(0));
-        static::assertSame(5.0, $this->requestTimeout(1));
     }
 
     public function testRequestFirstCallAuthenticatesThenGets(): void
@@ -310,7 +347,7 @@ final class BiblIndexClientTest extends TestCase
         try {
             $client->request(self::RESOURCE_PATH);
             static::fail('Expected a client exception.');
-        } catch (ClientExceptionInterface) {
+        } catch (ClientErrorException) {
         }
 
         static::assertSame(3, $this->requestCount());
@@ -367,7 +404,7 @@ final class BiblIndexClientTest extends TestCase
         $client = $this->makeClient([new JsonMockResponse(['error' => 'boom'], ['http_code' => 500])]);
         self::presetTokens($client);
 
-        $this->expectException(ServerExceptionInterface::class);
+        $this->expectException(ServerErrorException::class);
         $client->request(self::RESOURCE_PATH);
     }
 

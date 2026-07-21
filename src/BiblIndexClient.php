@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace BiblIndex\Client;
 
-use Symfony\Component\HttpClient\HttpClient;
-use Symfony\Component\HttpClient\Retry\GenericRetryStrategy;
-use Symfony\Component\HttpClient\RetryableHttpClient;
-use Symfony\Contracts\HttpClient\Exception\HttpExceptionInterface;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
-use Symfony\Contracts\HttpClient\ResponseInterface;
+use BiblIndex\Client\Exception\HttpException;
+use Http\Discovery\Psr17FactoryDiscovery;
+use Http\Discovery\Psr18ClientDiscovery;
+use Psr\Http\Client\ClientInterface;
+use Psr\Http\Client\NetworkExceptionInterface;
+use Psr\Http\Message\RequestFactoryInterface;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\StreamFactoryInterface;
 
 /**
  * HTTP client for interacting with the BiblIndex API.
@@ -25,8 +28,6 @@ use Symfony\Contracts\HttpClient\ResponseInterface;
 class BiblIndexClient implements ResourceClientInterface
 {
     public const string JSON_LD_MIME_TYPE = 'application/ld+json';
-
-    public const float DEFAULT_TIMEOUT = 30.0;
 
     /**
      * Refresh tokens slightly before their actual expiry so a token that
@@ -47,22 +48,24 @@ class BiblIndexClient implements ResourceClientInterface
     /** Expiration instant of the current access token. */
     public ?\DateTimeImmutable $expiresIn = null;
 
-    /** Client used for token POSTs — never retried, as a blind retry after an
-     * ambiguous failure could rotate the refresh token server-side and
-     * desynchronize auth state. */
-    private readonly HttpClientInterface $tokenClient;
+    private readonly ClientInterface $httpClient;
 
-    /** Client used for GET requests — wrapped with retries when enabled. */
-    private readonly HttpClientInterface $getClient;
+    private readonly RequestFactoryInterface $requestFactory;
+
+    private readonly StreamFactoryInterface $streamFactory;
 
     /**
-     * @param string  $baseUrl Base URL of the API.
-     * @param string  $accept  Media type used in the Accept header for API GET requests.
-     * @param ?float  $timeout Timeout in seconds applied to every HTTP call;
-     *                         null defers to the transport default.
-     * @param int     $retries Number of transport-level retries for GET
-     *                         requests (0 disables retries).
-     * @param ?HttpClientInterface $httpClient Underlying HTTP client, injectable for testing.
+     * Timeouts are a transport concern: configure them on the injected
+     * PSR-18 client (e.g. Guzzle's `timeout` option or Symfony's
+     * `HttpClient::create(['timeout' => ...])`).
+     *
+     * @param string $baseUrl Base URL of the API.
+     * @param string $accept  Media type used in the Accept header for API GET requests.
+     * @param int    $retries Number of retries for GET requests on transient
+     *                        failures (0 disables retries).
+     * @param ?ClientInterface $httpClient PSR-18 client; discovered when omitted.
+     * @param ?RequestFactoryInterface $requestFactory PSR-17 factory; discovered when omitted.
+     * @param ?StreamFactoryInterface $streamFactory PSR-17 factory; discovered when omitted.
      */
     public function __construct(
         public readonly string $baseUrl,
@@ -73,20 +76,14 @@ class BiblIndexClient implements ResourceClientInterface
         #[\SensitiveParameter]
         private readonly string $clientSecret,
         public readonly string $accept = self::JSON_LD_MIME_TYPE,
-        public readonly ?float $timeout = self::DEFAULT_TIMEOUT,
         public readonly int $retries = 0,
-        ?HttpClientInterface $httpClient = null,
+        ?ClientInterface $httpClient = null,
+        ?RequestFactoryInterface $requestFactory = null,
+        ?StreamFactoryInterface $streamFactory = null,
     ) {
-        $base = $httpClient ?? HttpClient::create();
-
-        $this->tokenClient = $base;
-        $this->getClient = $retries > 0
-            ? new RetryableHttpClient(
-                $base,
-                new GenericRetryStrategy(self::RETRY_STATUS_CODES, self::RETRY_DELAY_MS),
-                $retries,
-            )
-            : $base;
+        $this->httpClient = $httpClient ?? Psr18ClientDiscovery::find();
+        $this->requestFactory = $requestFactory ?? Psr17FactoryDiscovery::findRequestFactory();
+        $this->streamFactory = $streamFactory ?? Psr17FactoryDiscovery::findStreamFactory();
     }
 
     /**
@@ -107,7 +104,9 @@ class BiblIndexClient implements ResourceClientInterface
      *               {@see LazyCollection} instances, collections as
      *               {@see LazyCollection}.
      *
-     * @throws HttpExceptionInterface If the HTTP request fails.
+     * @throws HttpException If the API answers with a 4xx/5xx status. Transport
+     *                       failures surface as the PSR-18 client's own
+     *                       ClientExceptionInterface.
      */
     public function request(string $resource, array $params = []): mixed
     {
@@ -138,7 +137,7 @@ class BiblIndexClient implements ResourceClientInterface
      * Perform an authenticated GET request and return the decoded JSON body.
      *
      * A 401 response triggers a token renewal and a single replay of the
-     * request; a second 401 surfaces as an {@see HttpExceptionInterface}.
+     * request; a second 401 surfaces as an {@see HttpException}.
      *
      * @internal Part of {@see ResourceClientInterface} for the lazy wrappers.
      *
@@ -159,13 +158,16 @@ class BiblIndexClient implements ResourceClientInterface
 
         $response = $this->authorizedGet($resource, $params);
         if ($response->getStatusCode() === 401) {
-            $response->cancel();
+            // PSR-7 has no cancel(); the unused response is simply dropped.
             $this->reauthenticate();
             $response = $this->authorizedGet($resource, $params);
         }
 
-        // getContent() throws on any remaining >= 400 status.
-        return \json_decode($response->getContent(), associative: true, depth: 512, flags: \JSON_THROW_ON_ERROR);
+        if ($response->getStatusCode() >= 400) {
+            throw HttpException::fromResponse('GET', $this->requestUrl($resource, $params), $response);
+        }
+
+        return \json_decode((string) $response->getBody(), associative: true, depth: 512, flags: \JSON_THROW_ON_ERROR);
     }
 
     /**
@@ -173,7 +175,7 @@ class BiblIndexClient implements ResourceClientInterface
      *
      * Updates $accessToken, $refreshToken and $expiresIn.
      *
-     * @throws HttpExceptionInterface If the token endpoint rejects the
+     * @throws HttpException If the token endpoint rejects the
      *                                credentials. Token state is left
      *                                untouched on failure.
      */
@@ -193,7 +195,7 @@ class BiblIndexClient implements ResourceClientInterface
      *
      * Updates $accessToken, $refreshToken and $expiresIn.
      *
-     * @throws HttpExceptionInterface If the token endpoint rejects the
+     * @throws HttpException If the token endpoint rejects the
      *                                refresh token. Token state is left
      *                                untouched on failure.
      */
@@ -319,21 +321,69 @@ class BiblIndexClient implements ResourceClientInterface
         return $nextQuery === '' ? $path : $path . '?' . $nextQuery;
     }
 
-    /** Issue a GET request carrying the current bearer token. */
+    /**
+     * Issue a GET request carrying the current bearer token.
+     *
+     * @param array<string, mixed> $params
+     */
     private function authorizedGet(string $resource, array $params): ResponseInterface
     {
-        $options = [
-            'query' => $params,
-            'headers' => [
-                'Authorization' => 'Bearer ' . ($this->accessToken ?? ''),
-                'Accept' => $this->accept,
-            ],
-        ];
-        if ($this->timeout !== null) {
-            $options['timeout'] = $this->timeout;
-        }
+        $request = $this->requestFactory
+            ->createRequest('GET', $this->requestUrl($resource, $params))
+            ->withHeader('Authorization', 'Bearer ' . ($this->accessToken ?? ''))
+            ->withHeader('Accept', $this->accept);
 
-        return $this->getClient->request('GET', $this->baseUrl . $resource, $options);
+        return $this->sendWithRetries($request);
+    }
+
+    /**
+     * Absolute request URL for a normalized resource path and params.
+     *
+     * @param array<string, mixed> $params
+     */
+    private function requestUrl(string $resource, array $params): string
+    {
+        return $this->baseUrl . $this->resourceWithParams($resource, $params);
+    }
+
+    /**
+     * Send a GET request, retrying transient failures when retries are enabled.
+     *
+     * Retries 429/5xx statuses and PSR-18 network exceptions with exponential
+     * backoff (500 ms doubling), matching the semantics of the Symfony retry
+     * strategy previously used here. Request exceptions (malformed request)
+     * are never retried.
+     */
+    private function sendWithRetries(RequestInterface $request): ResponseInterface
+    {
+        $attempt = 0;
+        while (true) {
+            try {
+                $response = $this->httpClient->sendRequest($request);
+            } catch (NetworkExceptionInterface $exception) {
+                if ($attempt >= $this->retries) {
+                    throw $exception;
+                }
+
+                $this->pause($attempt++);
+                continue;
+            }
+
+            if (
+                $attempt >= $this->retries
+                || !\in_array($response->getStatusCode(), self::RETRY_STATUS_CODES, strict: true)
+            ) {
+                return $response;
+            }
+
+            $this->pause($attempt++);
+        }
+    }
+
+    /** Sleep before retry attempt N (0-based): RETRY_DELAY_MS * 2^N. */
+    private function pause(int $attempt): void
+    {
+        \usleep(\max(0, self::RETRY_DELAY_MS * (2 ** $attempt) * 1000));
     }
 
     /** Renew tokens after a 401: refresh grant if possible, else password grant. */
@@ -347,7 +397,7 @@ class BiblIndexClient implements ResourceClientInterface
 
         try {
             $this->refreshTokens();
-        } catch (HttpExceptionInterface) {
+        } catch (HttpException) {
             $this->fetchTokens();
         }
     }
@@ -359,13 +409,22 @@ class BiblIndexClient implements ResourceClientInterface
      */
     private function requestTokens(array $body): void
     {
-        $options = ['body' => $body];
-        if ($this->timeout !== null) {
-            $options['timeout'] = $this->timeout;
+        $url = $this->baseUrl . '/api/token';
+        $request = $this->requestFactory
+            ->createRequest('POST', $url)
+            ->withHeader('Content-Type', 'application/x-www-form-urlencoded')
+            ->withBody($this->streamFactory->createStream(\http_build_query($body)));
+
+        // Deliberately not retried — a blind retry after an ambiguous failure
+        // could rotate the refresh token server-side and desynchronize auth
+        // state. Thrown before touching token state, which stays untouched on
+        // failure.
+        $response = $this->httpClient->sendRequest($request);
+        if ($response->getStatusCode() >= 400) {
+            throw HttpException::fromResponse('POST', $url, $response);
         }
 
-        $response = $this->tokenClient->request('POST', $this->baseUrl . '/api/token', $options);
-        $data = \json_decode($response->getContent(), associative: true, depth: 512, flags: \JSON_THROW_ON_ERROR);
+        $data = \json_decode((string) $response->getBody(), associative: true, depth: 512, flags: \JSON_THROW_ON_ERROR);
 
         $this->accessToken = $data['access_token'];
         $this->refreshToken = $data['refresh_token'];

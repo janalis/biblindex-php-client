@@ -21,9 +21,24 @@ https://www.biblindex.org/api
 
 ### As a library in another project
 
+The client is built on the PSR-18/PSR-17 HTTP abstractions: it needs any
+PSR-18 client and PSR-17 factory implementation alongside it, for example
+Guzzle:
+
 ```bash
-composer require janalis/biblindex-client
+composer require janalis/biblindex-client guzzlehttp/guzzle
 ```
+
+or Symfony HttpClient with nyholm/psr7:
+
+```bash
+composer require janalis/biblindex-client symfony/http-client nyholm/psr7
+```
+
+Installed implementations are auto-detected via
+[php-http/discovery](https://github.com/php-http/discovery) (its composer
+plugin may prompt once to allow itself and can install a missing
+implementation for you).
 
 To use a version that hasn't been released to Packagist yet, add the Git
 repository to your project's `composer.json`:
@@ -79,15 +94,47 @@ The client authenticates with the OAuth2 password grant on first use, then
 refreshes the access token automatically (including a refresh slightly before
 expiry, and a renew-and-replay when the API answers 401).
 
+With no arguments beyond the credentials, the HTTP client and message
+factories are discovered from whatever implementation is installed. To control
+the transport (or in dependency-injection setups), inject them explicitly —
+any PSR-18 client works:
+
+```php
+// Guzzle
+$client = new BiblIndexClient(
+    baseUrl: 'https://www.biblindex.org',
+    username: '...',
+    password: '...',
+    clientId: '...',
+    clientSecret: '...',
+    httpClient: new \GuzzleHttp\Client(['timeout' => 10]),
+);
+
+// Symfony HttpClient
+$psr18 = new \Symfony\Component\HttpClient\Psr18Client(
+    \Symfony\Component\HttpClient\HttpClient::create(['timeout' => 10]),
+);
+$client = new BiblIndexClient(
+    baseUrl: 'https://www.biblindex.org',
+    // ...credentials...
+    httpClient: $psr18,
+    requestFactory: $psr18,
+    streamFactory: $psr18,
+);
+```
+
 ### Reliability
 
-Every HTTP call uses a 30-second timeout by default; pass `timeout:` to change
-it (`null` defers to the transport default). Retries are off by default — pass
-`retries: N` to enable transport-level retries with backoff for GET requests
-on transient errors (429 and 5xx responses). Token requests are never blindly
-retried; instead, a 401 API response triggers an automatic token renewal
-(refresh grant, falling back to the password grant) and a single replay of the
-request.
+Timeouts are a transport concern: configure them on the injected client, as
+in the examples above (Guzzle's `timeout` option, Symfony's
+`HttpClient::create(['timeout' => 10])`).
+
+Retries are off by default — pass `retries: N` to retry GET requests on
+transient failures (429/5xx responses and PSR-18 network exceptions) with
+exponential backoff (500 ms doubling; no jitter, `Retry-After` not
+consulted). Token requests are never blindly retried; instead, a 401 API
+response triggers an automatic token renewal (refresh grant, falling back to
+the password grant) and a single replay of the request.
 
 ```php
 $client = new BiblIndexClient(
@@ -96,15 +143,16 @@ $client = new BiblIndexClient(
     password: '...',
     clientId: '...',
     clientSecret: '...',
-    timeout: 10.0,
     retries: 3,
 );
 ```
 
-Errors surface as Symfony HttpClient exceptions
-(`Symfony\Contracts\HttpClient\Exception\*`): `ClientExceptionInterface` for
-4xx, `ServerExceptionInterface` for 5xx, `TransportExceptionInterface` for
-network failures.
+HTTP error statuses raise the client's own exceptions (PSR-18 clients do not
+throw on 4xx/5xx): `BiblIndex\Client\Exception\ClientErrorException` (4xx)
+and `ServerErrorException` (5xx), both extending `HttpException`, which
+exposes `method`, `url`, the PSR-7 `response` and `getStatusCode()`.
+Transport failures surface as the underlying client's PSR-18
+`Psr\Http\Client\ClientExceptionInterface` / `NetworkExceptionInterface`.
 
 ### Lazy fetching
 
@@ -185,9 +233,10 @@ echo $item['id'];                    // reads from the fetched item
   before mutating.
 - `count()` on a collection whose total is unknown fetches all remaining
   pages.
-- No `close()` call is needed — Symfony HttpClient needs no explicit session
-  cleanup.
-- `timeout: null` defers to the transport default.
+- No `close()` call is needed — connection lifecycle belongs to the injected
+  PSR-18 client.
+- Redirect following depends on the injected client: Guzzle's PSR-18 mode
+  does not follow redirects, Symfony's `Psr18Client` does.
 - Array query parameters are encoded in `key[0]=a&key[1]=b` bracket style
   (`http_build_query`).
 
@@ -198,8 +247,10 @@ composer install
 bin/phpunit
 ```
 
-The suite mocks all HTTP traffic with Symfony's `MockHttpClient` — no network
-access needed.
+The suite mocks all HTTP traffic — no network access needed: Symfony's
+`MockHttpClient` (bridged through its PSR-18 `Psr18Client` adapter) backs the
+main suite, and a Guzzle `MockHandler` compatibility suite proves the client
+against a second PSR-18 implementation.
 
 ## Code quality
 

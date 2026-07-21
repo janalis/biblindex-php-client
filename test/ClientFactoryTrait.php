@@ -7,6 +7,7 @@ namespace BiblIndex\Client\Test;
 use BiblIndex\Client\BiblIndexClient;
 use PHPUnit\Framework\Assert;
 use Symfony\Component\HttpClient\MockHttpClient;
+use Symfony\Component\HttpClient\Psr18Client;
 use Symfony\Contracts\HttpClient\ResponseInterface;
 
 /**
@@ -30,7 +31,6 @@ trait ClientFactoryTrait
     private function makeClient(
         array $responses = [],
         string $accept = BiblIndexClient::JSON_LD_MIME_TYPE,
-        ?float $timeout = BiblIndexClient::DEFAULT_TIMEOUT,
         int $retries = 0,
     ): BiblIndexClient {
         $this->requests = [];
@@ -47,6 +47,11 @@ trait ClientFactoryTrait
             return \array_shift($queue);
         });
 
+        // Psr18Client implements the PSR-18 client and both PSR-17 factories
+        // at once, bridging the PSR request path back onto the recording
+        // MockHttpClient.
+        $psr18 = new Psr18Client($mock);
+
         return new BiblIndexClient(
             self::BASE_URL,
             'user',
@@ -54,9 +59,10 @@ trait ClientFactoryTrait
             'id',
             'secret',
             accept: $accept,
-            timeout: $timeout,
             retries: $retries,
-            httpClient: $mock,
+            httpClient: $psr18,
+            requestFactory: $psr18,
+            streamFactory: $psr18,
         );
     }
 
@@ -114,12 +120,5 @@ trait ClientFactoryTrait
 
         /** @var array<string, string> $form */
         return $form;
-    }
-
-    private function requestTimeout(int $index): ?float
-    {
-        $timeout = $this->requests[$index]['options']['timeout'] ?? null;
-
-        return \is_float($timeout) || \is_int($timeout) || \is_numeric($timeout) ? (float) $timeout : null;
     }
 }
