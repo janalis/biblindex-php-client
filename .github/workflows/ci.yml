@@ -79,3 +79,80 @@ jobs:
 
       - name: Analyze
         run: bin/mago analyze
+
+  release:
+    name: Auto release
+    # Every green build on main is released automatically as the next patch
+    # version. Commit message markers adjust behavior: [release:minor],
+    # [release:major], [release:skip].
+    needs: [tests, quality]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: biblindex-php-client-runners
+    permissions:
+      contents: write
+    concurrency:
+      group: auto-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute and push next version tag
+        id: version
+        run: |
+          if [ -n "$(git tag --points-at HEAD --list 'v*')" ]; then
+            echo "HEAD is already tagged; skipping release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          message="$(git log -1 --pretty=%B)"
+          case "$message" in
+            *"[release:skip]"*)
+              echo "Commit requests no release; skipping."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
+          current="$(git tag --list 'v*' --sort=-v:refname | head -n1)"
+          current="${current:-v0.0.0}"
+          IFS=. read -r major minor patch <<<"${current#v}"
+
+          case "$message" in
+            *"[release:major]"*) major=$((major + 1)); minor=0; patch=0 ;;
+            *"[release:minor]"*) minor=$((minor + 1)); patch=0 ;;
+            *) patch=$((patch + 1)) ;;
+          esac
+
+          next="v${major}.${minor}.${patch}"
+          echo "Releasing ${current} -> ${next}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "$next" --message "Release $next"
+          git push origin "$next"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.skip == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+
+      - name: Notify Packagist
+        if: steps.version.outputs.skip == 'false'
+        env:
+          PACKAGIST_USERNAME: phcorp
+          PACKAGIST_API_TOKEN: ${{ secrets.PACKAGIST_API_TOKEN }}
+        run: |
+          if [ -z "$PACKAGIST_API_TOKEN" ]; then
+            echo "::warning::PACKAGIST_API_TOKEN secret is not set; skipping the Packagist update ping."
+            exit 0
+          fi
+          curl -fsS -X POST \
+            -H 'Content-Type: application/json' \
+            "https://packagist.org/api/update-package?username=${PACKAGIST_USERNAME}&apiToken=${PACKAGIST_API_TOKEN}" \
+            -d '{"repository":{"url":"https://packagist.org/packages/janalis/biblindex-client"}}'

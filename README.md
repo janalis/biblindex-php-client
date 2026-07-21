@@ -269,21 +269,31 @@ composer check         # format check + lint + analysis + tests
 
 ## Publishing a new version
 
-Releases are published to [Packagist](https://packagist.org/packages/janalis/biblindex-client).
+Releases are published to [Packagist](https://packagist.org/packages/janalis/biblindex-client)
+**automatically**: every push to `main` whose CI build (tests + code
+quality) is green is released as the next **patch** version by the
+[CI workflow](.github/workflows/ci.yml)'s release job — it tags the next
+version (starting from v0.0.0), creates a GitHub Release with auto-generated
+notes and pings the Packagist update API.
 
-```bash
-composer release:patch   # or release:minor / release:major
-```
+Control the release from the commit message:
 
-This computes the next version from the latest `v*` tag (starting from
-v0.0.0), creates the annotated tag and pushes it. The
-[Release workflow](.github/workflows/release.yml) then runs the full test
-suite; only when it is green does it create a GitHub Release with
-auto-generated notes and ping the Packagist update API so the new version
-becomes installable. The ping requires the `PACKAGIST_API_TOKEN` repository
-secret (the "safe API token" from your [Packagist
-profile](https://packagist.org/profile/)); when it is missing the workflow
-skips the ping with a warning.
+| Marker | Effect |
+| --- | --- |
+| *(none)* | patch bump (default) |
+| `[release:minor]` | minor bump (resets patch) |
+| `[release:major]` | major bump (resets minor/patch) |
+| `[release:skip]` | no release for this build |
+
+Manual releases still work — `composer release:patch` (or
+`release:minor` / `release:major`) tags and pushes from your machine, which
+triggers the tag-driven [Release workflow](.github/workflows/release.yml);
+the automatic job then skips that commit because it is already tagged.
+
+The Packagist ping requires the `PACKAGIST_API_TOKEN` repository secret (the
+"safe API token" from your [Packagist
+profile](https://packagist.org/profile/)); when it is missing the workflows
+skip the ping with a warning.
 
 CI and releases run on self-hosted runners managed by
 [ARC](https://github.com/actions/actions-runner-controller) (runner scale set
