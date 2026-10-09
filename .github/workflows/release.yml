@@ -10,7 +10,7 @@ permissions:
 jobs:
   tests:
     name: Tests (PHP ${{ matrix.php }})
-    runs-on: biblindex-php-client-runners
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -41,7 +41,7 @@ jobs:
   release:
     name: GitHub Release + Packagist
     needs: tests
-    runs-on: biblindex-php-client-runners
+    runs-on: ubuntu-latest
     container:
       image: php:8.4-cli
     steps:
