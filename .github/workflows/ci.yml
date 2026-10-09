@@ -8,10 +8,8 @@ on:
 jobs:
   tests:
     name: Tests (PHP ${{ matrix.php }})
-    # Self-hosted runners on the local ARC (Actions Runner Controller)
-    # scale set; the ARC runner image ships no PHP, so the job runs in a
-    # php:<version>-cli container instead of using setup-php.
-    runs-on: biblindex-php-client-runners
+    # GitHub-hosted Linux runners use explicit PHP containers for the matrix.
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -53,7 +51,7 @@ jobs:
 
   quality:
     name: Code quality (Mago)
-    runs-on: biblindex-php-client-runners
+    runs-on: ubuntu-latest
     container:
       image: php:8.4-cli
     steps:
@@ -87,7 +85,7 @@ jobs:
     # [release:major], [release:skip].
     needs: [tests, quality]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: biblindex-php-client-runners
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     concurrency:
