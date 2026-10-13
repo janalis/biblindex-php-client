@@ -1,0 +1,41 @@
+# GitLab CI/CD — only keeps this GitLab (huma-num) repo in sync with GitHub,
+# which is the source of truth. Tests and releases run in GitHub Actions.
+#
+# Required CI/CD variable (Settings → CI/CD → Variables):
+#   GITLAB_PUSH_TOKEN — project/personal access token with write_repository
+#                       scope (masked, protected)
+#
+# Required pipeline schedule (Build → Pipeline schedules), on `main`. `main`
+# must be a protected branch, or the protected GITLAB_PUSH_TOKEN is withheld
+# from the job.
+
+stages:
+  - mirror
+
+# ── Mirror from GitHub (scheduled) ──────────────────────────────────────────
+# The sync is pulled from here rather than pushed from a GitHub workflow because
+# this GitLab refuses connections from GitHub's hosted runners. Branches and
+# tags deleted on GitHub are deleted here too.
+mirror:
+  stage: mirror
+  image: alpine:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  variables:
+    GIT_STRATEGY: none
+    GITHUB_URL: "https://github.com/janalis/biblindex-php-client.git"
+  before_script:
+    - apk add --no-cache git
+  script:
+    - |
+      if [ -z "${GITLAB_PUSH_TOKEN:-}" ]; then
+        echo "GITLAB_PUSH_TOKEN is empty: it is a protected variable, so the scheduled branch must be protected." >&2
+        exit 1
+      fi
+    - git init --bare mirror.git
+    - cd mirror.git
+    - git fetch --prune "$GITHUB_URL" '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
+    # Feed the token via a credential helper so it never lands in the remote URL
+    # (and thus never in git's logged output).
+    - git config credential.helper '!f() { echo "username=oauth2"; echo "password=$GITLAB_PUSH_TOKEN"; }; f'
+    - git push --prune "https://${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
